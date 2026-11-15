@@ -37,10 +37,10 @@
   #toast { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%) scale(.5); font-size:38px; font-weight:700; color:var(--accent);
     text-shadow:0 4px 0 rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:all .35s cubic-bezier(.2,1.6,.4,1); white-space:nowrap; }
   #toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
-  nav { display:flex; gap:8px; margin:6px 0 16px; align-items:center; flex-wrap:wrap; justify-content:center; }
+  nav { display:flex; gap:6px; margin:6px 0 16px; align-items:center; justify-content:center; max-width:100%; padding:0 6px; }
   nav button, .mbtn { font-family:inherit; font-size:16px; color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-    border-radius:999px; padding:10px 14px; cursor:pointer; }
-  nav button.icon { padding:10px 12px; font-size:18px; }
+    border-radius:999px; padding:10px 14px; cursor:pointer; white-space:nowrap; }
+  nav button.icon { padding:9px 10px; font-size:17px; }
   nav button.primary, .mbtn.primary { background:var(--accent); color:#2a1400; border-color:transparent; font-weight:700; }
   nav button:active, .mbtn:active { transform:scale(.94); }
   nav button:disabled { opacity:.4; }
@@ -103,7 +103,7 @@
   <div id="hint">👆 Swipe around the spinner • tap the middle to boost</div>
 </div>
 <nav>
-  <button id="challengeBtn" class="primary">🏁 30s Challenge</button>
+  <button id="challengeBtn" class="primary">🏁 Challenge</button>
   <button id="boardBtn">🏆 Top</button>
   <button id="themeBtn" class="icon" aria-label="Change color">🎨</button>
   <button id="soundBtn" class="icon" aria-label="Sound on/off">🔊</button>
@@ -405,7 +405,8 @@
     if (!ch.active) return;
     const left = Math.max(0, (ch.endAt - now) / 1000);
     $('hudTime').textContent = left.toFixed(1);
-    $('hudSpins').textContent = Math.floor(ch.rot / TAU) + ' spins';
+    const n = Math.floor(ch.rot / TAU);
+    $('hudSpins').textContent = n + (n === 1 ? ' spin' : ' spins');
     hud.classList.toggle('hurry', left <= 5);
     if (left <= 0) endChallenge();
   }
@@ -436,7 +437,7 @@
   function showResult(score) {
     openModal(`<h2>Time's up!</h2>
       <div class="big">${score}</div>
-      <p>spins in 30 seconds</p>
+      <p>${score === 1 ? 'spin' : 'spins'} in 30 seconds</p>
       <p class="muted">${score >= bestChallenge && score > 0 ? '🎉 New personal best!' : 'Your best: ' + bestChallenge}</p>
       ${score > 0 ? `<input id="nick" maxlength="12" placeholder="Your nickname" value="${esc(nickname)}" autocomplete="off" autocapitalize="off" spellcheck="false">
       <div class="err" id="nickErr"></div>
@@ -557,7 +558,7 @@
   let prev = performance.now(), time = 0, shownRpm = 0;
   let saveTimer = 0;
   function frame(now) {
-    const dt = Math.min((now - prev) / 1000, 0.05); prev = now; time += dt;
+    const dt = Math.min((now - prev) / 1000, 0.1); prev = now; time += dt;
 
     if (!dragging) {
       const before = rot;
