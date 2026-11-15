@@ -44,6 +44,26 @@
   nav button.primary, .mbtn.primary { background:var(--accent); color:#2a1400; border-color:transparent; font-weight:700; }
   nav button:active, .mbtn:active { transform:scale(.94); }
   nav button:disabled { opacity:.4; }
+  nav button.vs { background:#ff5fa2; color:#fff; }
+  #tools { position:absolute; top:8px; right:8px; display:flex; flex-direction:column; gap:8px; z-index:2; }
+  #tools button { font-size:17px; width:40px; height:40px; border-radius:50%; border:1px solid rgba(255,255,255,.2);
+    background:rgba(255,255,255,.1); color:#fff; cursor:pointer; padding:0; }
+  #tools button:active { transform:scale(.92); }
+  /* versus */
+  .code { font-size:44px; font-weight:700; letter-spacing:8px; color:var(--accent); margin:6px 0; user-select:text; -webkit-user-select:text; }
+  .or { opacity:.6; margin:12px 0 2px; font-size:14px; }
+  .vsrow { display:flex; align-items:center; justify-content:center; gap:10px; margin:6px 0; }
+  .vsbox { flex:1; background:rgba(255,255,255,.07); border-radius:16px; padding:10px 6px; }
+  .vsbox.win { background:rgba(255,210,63,.2); outline:2px solid var(--accent); }
+  .vsbox .who { font-size:14px; opacity:.85; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vsbox .num { font-size:42px; font-weight:700; color:var(--accent); line-height:1.1; }
+  .dots::after { content:''; animation:dots 1.2s steps(4) infinite; }
+  @keyframes dots { 0% { content:''; } 25% { content:'.'; } 50% { content:'..'; } 75% { content:'...'; } }
+  #hudRace { display:none; font-size:15px; margin-top:2px; }
+  #hud.race #hudRace { display:block; }
+  #hud.race #hudSpins { display:none; }
+  #hudRace b { color:var(--accent); }
+  #hudRace .lead { color:#7cffcb; }
 
   /* challenge HUD */
   #hud { position:absolute; top:8px; left:50%; transform:translateX(-50%); display:none; text-align:center; pointer-events:none;
@@ -98,16 +118,19 @@
 <div id="stage">
   <canvas id="c"></canvas>
   <div id="toast"></div>
-  <div id="hud"><div id="hudTime">30.0</div><div id="hudSpins">0 spins</div></div>
+  <div id="hud"><div id="hudTime">30.0</div><div id="hudSpins">0 spins</div><div id="hudRace"></div></div>
   <div id="countdown"></div>
   <div id="hint">👆 Swipe around the spinner • tap the middle to boost</div>
+  <div id="tools">
+    <button id="themeBtn" aria-label="Change color">🎨</button>
+    <button id="soundBtn" aria-label="Sound on/off">🔊</button>
+    <button id="hapticBtn" aria-label="Buzz on/off">📳</button>
+  </div>
 </div>
 <nav>
-  <button id="challengeBtn" class="primary">🏁 Challenge</button>
+  <button id="challengeBtn" class="primary">🏁 Solo</button>
+  <button id="versusBtn" class="primary vs">⚔️ Versus</button>
   <button id="boardBtn">🏆 Top</button>
-  <button id="themeBtn" class="icon" aria-label="Change color">🎨</button>
-  <button id="soundBtn" class="icon" aria-label="Sound on/off">🔊</button>
-  <button id="hapticBtn" class="icon" aria-label="Buzz on/off">📳</button>
 </nav>
 <div id="modal"><div class="card" id="card"></div></div>
 
@@ -200,7 +223,7 @@
   let boostPulse = 0;
   // challenge state
   const CH_SECONDS = 30;
-  const ch = { active:false, locked:false, rot:0, endAt:0 };
+  const ch = { active:false, locked:false, rot:0, endAt:0, mode:'solo' };
 
   function angAt(x, y) { return Math.atan2(y - cy, x - cx); }
   function norm(d) { while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; }
@@ -374,29 +397,36 @@
   let nickname = store.get('nick', '');
   const countdownEl = $('countdown'), hud = $('hud');
 
+  function beep(go) {
+    if (soundOn) { const a = audio(); if (a) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = go ? 990 : 660;
+      g.gain.setValueAtTime(0.12, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.25);
+      o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + 0.3); } }
+    buzz(go ? 60 : 20);
+  }
+  function setGameButtons(on) { ['challengeBtn', 'versusBtn'].forEach(id => $(id).disabled = !on); }
+  function beginTimedRun(mode) {
+    countdownEl.classList.remove('on');
+    ch.mode = mode; ch.locked = false; ch.active = true; ch.rot = 0;
+    ch.endAt = performance.now() + CH_SECONDS * 1000;
+    hud.classList.add('on'); hud.classList.remove('hurry');
+    hud.classList.toggle('race', mode === 'race');
+  }
+
   function startChallenge() {
-    if (ch.active || ch.locked) return;
+    if (ch.active || ch.locked || race.phase !== 'idle') return;
     closeModal(); audio();
     $('hint').style.display = 'none';
     vel = 0; dragging = false;
-    ch.locked = true; ch.rot = 0;
-    $('challengeBtn').disabled = true;
+    ch.locked = true; ch.rot = 0; ch.mode = 'solo';
+    setGameButtons(false);
     const steps = ['3', '2', '1', 'GO!'];
     let i = 0;
     const next = () => {
       countdownEl.textContent = steps[i]; countdownEl.classList.add('on');
-      if (soundOn) { const a = audio(); if (a) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = i < 3 ? 660 : 990;
-        g.gain.setValueAtTime(0.12, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.25);
-        o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + 0.3); } }
-      buzz(i < 3 ? 20 : 60);
+      beep(i === 3);
       i++;
       if (i < steps.length) setTimeout(next, 750);
-      else setTimeout(() => {
-        countdownEl.classList.remove('on');
-        ch.locked = false; ch.active = true; ch.rot = 0;
-        ch.endAt = performance.now() + CH_SECONDS * 1000;
-        hud.classList.add('on'); hud.classList.remove('hurry');
-      }, 450);
+      else setTimeout(() => beginTimedRun('solo'), 450);
     };
     next();
   }
@@ -406,16 +436,23 @@
     const left = Math.max(0, (ch.endAt - now) / 1000);
     $('hudTime').textContent = left.toFixed(1);
     const n = Math.floor(ch.rot / TAU);
-    $('hudSpins').textContent = n + (n === 1 ? ' spin' : ' spins');
+    if (ch.mode === 'race') {
+      race.mySpins = n;
+      const o = race.oppSpins, meLead = n > o, oppLead = o > n;
+      $('hudRace').innerHTML = `<span class="${meLead ? 'lead' : ''}">You <b>${n}</b></span> · <span class="${oppLead ? 'lead' : ''}">${esc(race.opp)} <b>${o}</b></span>`;
+    } else {
+      $('hudSpins').textContent = n + (n === 1 ? ' spin' : ' spins');
+    }
     hud.classList.toggle('hurry', left <= 5);
     if (left <= 0) endChallenge();
   }
 
   function endChallenge() {
     ch.active = false;
-    hud.classList.remove('on', 'hurry');
-    $('challengeBtn').disabled = false;
+    hud.classList.remove('on', 'hurry', 'race');
     const score = Math.min(450, Math.floor(ch.rot / TAU));
+    if (ch.mode === 'race') { raceFinished(score); return; }
+    setGameButtons(true);
     const newBest = score > bestChallenge;
     if (newBest) { bestChallenge = score; store.set('bestCh', score); }
     chime(); burst(newBest ? 140 : 60); buzz([40, 50, 80]);
@@ -463,8 +500,250 @@
     };
   }
 
+  // ---------- live 1v1 races ----------
+  // Flow: host creates races/CODE (waiting) -> guest joins (ready) -> host starts (running, startAt = server time)
+  // -> both count down to startAt + 4s, race 30s, push spins ~every 0.7s and poll the other's spins -> done flags -> results.
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const race = { phase:'idle', code:'', role:'', me:'', opp:'', oppSpins:0, oppDone:false, mySpins:0,
+                 sent:-1, offset:0, goLocal:0, lastCount:'', final:null, finishedAt:0, timer:null, busy:false, errs:0 };
+
+  function fsVal(v) {
+    if ('stringValue' in v) return v.stringValue;
+    if ('integerValue' in v) return Number(v.integerValue);
+    if ('booleanValue' in v) return v.booleanValue;
+    if ('timestampValue' in v) return Date.parse(v.timestampValue.replace(/(\.\d{3})\d+/, '$1'));
+    return null;
+  }
+  async function fsCommit(write) {
+    const t0 = Date.now();
+    const r = await fetch(FB_BASE + ':commit?key=' + FB_KEY, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ writes:[write] }) });
+    const t1 = Date.now();
+    if (!r.ok) { const e = new Error('commit ' + r.status); e.status = r.status; throw e; }
+    const j = await r.json();
+    if (j.commitTime) race.offset = Date.parse(j.commitTime.replace(/(\.\d{3})\d+/, '$1')) - (t0 + t1) / 2;   // server clock - local clock
+    return j;
+  }
+  async function getRace(code) {
+    const r = await fetch(FB_BASE + '/races/' + code + '?key=' + FB_KEY, { cache:'no-store' });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('get ' + r.status);
+    const j = await r.json(), o = {};
+    for (const k in j.fields) o[k] = fsVal(j.fields[k]);
+    return o;
+  }
+  function raceDoc(code) { return FB_DOCS + '/races/' + code; }
+  function newCode() { let s = ''; for (let i = 0; i < 5; i++) s += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]; return s; }
+  function inviteLink(code) { return GAME_URL + '?race=' + code; }
+
+  async function createRace(name) {
+    for (let tries = 0; tries < 4; tries++) {
+      const code = newCode();
+      try {
+        await fsCommit({ update:{ name: raceDoc(code), fields:{
+            host:{ stringValue:name }, guest:{ stringValue:'' }, state:{ stringValue:'waiting' },
+            hostSpins:{ integerValue:'0' }, guestSpins:{ integerValue:'0' },
+            hostDone:{ booleanValue:false }, guestDone:{ booleanValue:false } } },
+          updateTransforms:[{ fieldPath:'created', setToServerValue:'REQUEST_TIME' }],
+          currentDocument:{ exists:false } });
+        return code;
+      } catch (e) { if (e.status !== 409 && e.status !== 400) throw e; }   // code taken -> try another
+    }
+    throw new Error('no code');
+  }
+  async function joinRace(code, name) {
+    const d = await getRace(code);
+    if (!d) return { ok:false, msg:'No race with that code. Check the letters and try again.' };
+    if (d.state !== 'waiting' || d.guest) return { ok:false, msg:'That race already started or is full. Ask for a new code.' };
+    if (d.host.toLowerCase() === name.toLowerCase()) return { ok:false, msg:'Pick a different nickname from the host.' };
+    try {
+      await fsCommit({ update:{ name: raceDoc(code), fields:{ guest:{ stringValue:name }, state:{ stringValue:'ready' } } },
+        updateMask:{ fieldPaths:['guest', 'state'] }, currentDocument:{ exists:true } });
+    } catch (e) { return { ok:false, msg: e.status === 403 ? 'Someone else just joined that race.' : "Couldn't join — check your internet." }; }
+    return { ok:true, host:d.host };
+  }
+  async function startRaceOnServer() {
+    await fsCommit({ update:{ name: raceDoc(race.code), fields:{ state:{ stringValue:'running' } } },
+      updateMask:{ fieldPaths:['state'] }, updateTransforms:[{ fieldPath:'startAt', setToServerValue:'REQUEST_TIME' }],
+      currentDocument:{ exists:true } });
+  }
+  async function pushSpins(n, done) {
+    const sf = race.role === 'host' ? 'hostSpins' : 'guestSpins', df = race.role === 'host' ? 'hostDone' : 'guestDone';
+    const fields = {}; fields[sf] = { integerValue:String(n) }; fields[df] = { booleanValue:!!done };
+    await fsCommit({ update:{ name: raceDoc(race.code), fields }, updateMask:{ fieldPaths:[sf, df] }, currentDocument:{ exists:true } });
+    race.sent = n;
+  }
+
+  function stopRace() {
+    race.phase = 'idle'; clearTimeout(race.timer); race.timer = null;
+    ch.locked = false; countdownEl.classList.remove('on');
+    if (!ch.active) setGameButtons(true);
+  }
+  function schedulePoll(ms) { clearTimeout(race.timer); race.timer = setTimeout(pollRace, ms); }
+
+  async function pollRace() {
+    if (race.phase === 'idle' || race.busy) return;
+    race.busy = true;
+    try {
+      const d = await getRace(race.code);
+      race.errs = 0;
+      if (!d) { race.busy = false; return schedulePoll(1500); }
+      const isHost = race.role === 'host';
+      if (isHost && d.guest) race.opp = d.guest;
+      const os = isHost ? d.guestSpins : d.hostSpins, od = isHost ? d.guestDone : d.hostDone;
+      if (typeof os === 'number') race.oppSpins = Math.max(race.oppSpins, os);
+      race.oppDone = !!od;
+
+      if (race.phase === 'waiting' && d.state === 'ready') {
+        race.phase = 'starting';
+        const s = $('vsStatus'); if (s) s.innerHTML = `<b>${esc(race.opp)}</b> joined! Starting…`;
+        beep(false);
+        try { await startRaceOnServer(); } catch (e) { /* the next poll will see the state */ }
+      }
+      if ((race.phase === 'waiting' || race.phase === 'starting' || race.phase === 'joined') && d.state === 'running' && d.startAt) {
+        race.goLocal = d.startAt - race.offset + 4000;           // same instant on both phones
+        race.phase = 'countdown'; race.oppSpins = 0; race.mySpins = 0; race.sent = -1;
+        closeModal(); audio();
+        $('hint').style.display = 'none';
+        vel = 0; dragging = false; ch.locked = true; ch.rot = 0; ch.mode = 'race';
+        setGameButtons(false);
+      }
+      if (race.phase === 'racing' && race.mySpins !== race.sent) await pushSpins(race.mySpins, false);
+      if (race.phase === 'finishing') {
+        if (race.sent !== race.final || !race.sentDone) { await pushSpins(race.final, true); race.sentDone = true; }
+        if (race.oppDone || Date.now() - race.finishedAt > 8000) { showRaceResult(); race.busy = false; return; }
+      }
+    } catch (e) {
+      race.errs++;
+      if (race.errs > 25 && race.phase !== 'racing') { race.busy = false; stopRace(); return openModal(`<h2>Connection lost</h2><p>Couldn't reach the race. Check your internet and start a new race.</p><div class="row"><button class="mbtn" id="xClose">Close</button></div>`), $('xClose').onclick = closeModal; }
+    }
+    race.busy = false;
+    const fast = race.phase === 'racing' || race.phase === 'finishing' || race.phase === 'countdown';
+    schedulePoll(fast ? 700 : 1500);
+  }
+
+  // called every animation frame
+  function raceTick() {
+    if (race.phase !== 'countdown') return;
+    const rem = race.goLocal - Date.now();
+    if (rem > 0) {
+      const label = rem > 3000 ? 'Ready…' : String(Math.ceil(rem / 1000));
+      if (label !== race.lastCount) { race.lastCount = label; countdownEl.textContent = label; countdownEl.classList.add('on'); if (label !== 'Ready…') beep(false); }
+      if (rem > 3000) countdownEl.style.fontSize = '56px'; else countdownEl.style.fontSize = '';
+    } else {
+      countdownEl.style.fontSize = ''; countdownEl.textContent = 'GO!'; beep(true);
+      race.lastCount = ''; race.phase = 'racing';
+      setTimeout(() => { if (countdownEl.textContent === 'GO!') countdownEl.classList.remove('on'); }, 450);
+      beginTimedRun('race');
+    }
+  }
+
+  function raceFinished(score) {
+    race.final = score; race.mySpins = score; race.sentDone = false;
+    race.finishedAt = Date.now(); race.phase = 'finishing';
+    chime(); buzz([40, 50, 80]);
+    openModal(`<h2>Time's up!</h2><div class="big">${score}</div><p>Waiting for <b>${esc(race.opp)}</b>'s final score<span class="dots"></span></p>`);
+    schedulePoll(0);
+  }
+
+  function showRaceResult() {
+    const me = race.final, them = race.oppSpins;
+    const win = me > them, tie = me === them;
+    race.phase = 'idle'; clearTimeout(race.timer);
+    setGameButtons(true);
+    burst(win ? 160 : 50);
+    if (win) buzz([60, 60, 120]);
+    openModal(`<h2>${tie ? "It's a tie! 🤝" : win ? 'You win! 🏆' : esc(race.opp) + ' wins! 😵‍💫'}</h2>
+      <div class="vsrow">
+        <div class="vsbox ${win ? 'win' : ''}"><div class="who">You (${esc(race.me)})</div><div class="num">${me}</div></div>
+        <div style="font-weight:700;opacity:.7">VS</div>
+        <div class="vsbox ${!win && !tie ? 'win' : ''}"><div class="who">${esc(race.opp)}</div><div class="num">${them}</div></div>
+      </div>
+      ${race.oppDone ? '' : `<p class="muted">${esc(race.opp)}'s last score update didn't arrive — this is their latest count.</p>`}
+      <div class="row"><button class="mbtn primary" id="rvAgain">⚔️ New race</button>${me > 0 ? '<button class="mbtn" id="rvPost">🏆 Post my score</button>' : ''}</div>
+      <div class="err" id="rvErr"></div>
+      <div class="row"><button class="mbtn" id="rvClose">Close</button></div>`);
+    $('rvAgain').onclick = () => openVersus();
+    $('rvClose').onclick = closeModal;
+    if (me > 0) $('rvPost').onclick = async () => {
+      const b = $('rvPost'); b.disabled = true; b.textContent = 'Posting…';
+      try { const id = await postScore(race.me, me); showBoard(id, me); }
+      catch (e) { b.disabled = false; b.textContent = '🏆 Post my score'; $('rvErr').textContent = "Couldn't post — try again."; }
+    };
+  }
+
+  async function shareInvite(code, btn) {
+    const text = `Race me in Smile Spin! ⚔️ Tap to join: ${inviteLink(code)} (code ${code})`;
+    try { if (navigator.share) { await navigator.share({ title:'Smile Spin race', text }); return; } }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(text); btn.textContent = '✅ Link copied!'; }
+    catch (e) { btn.textContent = 'Copy failed — read the code out'; }
+  }
+
+  function openVersus(prefillCode) {
+    if (ch.active || ch.locked || (race.phase !== 'idle')) return;
+    openModal(`<h2>⚔️ Versus</h2>
+      <p class="muted">Race a friend live — same 30 seconds, see each other's spins.</p>
+      <input id="vsNick" maxlength="12" placeholder="Your nickname" value="${esc(nickname)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="row"><button class="mbtn primary" id="vsCreate">➕ Create a race</button></div>
+      <div class="or">— or join a friend's race —</div>
+      <input id="vsCode" maxlength="5" placeholder="Race code" value="${esc(prefillCode || '')}" autocomplete="off" autocapitalize="characters" spellcheck="false" style="text-transform:uppercase;letter-spacing:4px">
+      <div class="row"><button class="mbtn" id="vsJoin">🚀 Join</button><button class="mbtn" id="vsClose">Close</button></div>
+      <div class="err" id="vsErr"></div>`);
+    $('vsClose').onclick = closeModal;
+    const getNick = () => {
+      const c = cleanName($('vsNick').value);
+      if (!c.ok) { $('vsErr').textContent = c.msg; return null; }
+      nickname = c.name; store.set('nick', nickname); return nickname;
+    };
+    $('vsCreate').onclick = async () => {
+      const n = getNick(); if (!n) return;
+      const b = $('vsCreate'); b.disabled = true; b.textContent = 'Creating…';
+      try {
+        const code = await createRace(n);
+        Object.assign(race, { phase:'waiting', code, role:'host', me:n, opp:'Friend', oppSpins:0, oppDone:false, mySpins:0, sent:-1, final:null, errs:0 });
+        setGameButtons(false);
+        openModal(`<h2>Race code</h2>
+          <div class="code">${code}</div>
+          <p>Send this to your friend. The race starts by itself as soon as they join.</p>
+          <div class="row"><button class="mbtn primary" id="vsInvite">📤 Send invite</button></div>
+          <p id="vsStatus" class="muted" style="margin-top:12px">Waiting for your friend to join<span class="dots"></span></p>
+          <div class="row"><button class="mbtn" id="vsCancel">Cancel</button></div>`);
+        $('vsInvite').onclick = () => shareInvite(code, $('vsInvite'));
+        $('vsCancel').onclick = () => { stopRace(); closeModal(); };
+        schedulePoll(1500);
+      } catch (e) {
+        b.disabled = false; b.textContent = '➕ Create a race';
+        $('vsErr').textContent = "Couldn't create a race — check your internet.";
+      }
+    };
+    $('vsJoin').onclick = async () => {
+      const n = getNick(); if (!n) return;
+      const code = ($('vsCode').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (code.length !== 5) { $('vsErr').textContent = 'Race codes are 5 letters/numbers.'; return; }
+      const b = $('vsJoin'); b.disabled = true; b.textContent = 'Joining…';
+      const res = await joinRace(code, n);
+      if (!res.ok) { b.disabled = false; b.textContent = '🚀 Join'; $('vsErr').textContent = res.msg; return; }
+      Object.assign(race, { phase:'joined', code, role:'guest', me:n, opp:res.host, oppSpins:0, oppDone:false, mySpins:0, sent:-1, final:null, errs:0 });
+      setGameButtons(false);
+      openModal(`<h2>You're in! ⚔️</h2><p>Racing <b>${esc(res.host)}</b></p><p class="muted">Get ready — starting in a moment<span class="dots"></span></p>
+        <div class="row"><button class="mbtn" id="vsLeave">Leave</button></div>`);
+      $('vsLeave').onclick = () => { stopRace(); closeModal(); };
+      schedulePoll(500);
+    };
+  }
+
   $('challengeBtn').onclick = startChallenge;
+  $('versusBtn').onclick = () => openVersus();
   $('boardBtn').onclick = () => showBoard();
+
+  // opened from an invite link: ?race=CODE
+  try {
+    const inv = new URLSearchParams(location.search).get('race');
+    if (inv && /^[A-Za-z0-9]{5}$/.test(inv)) {
+      setTimeout(() => openVersus(inv.toUpperCase()), 300);
+      history.replaceState(null, '', location.pathname);
+    }
+  } catch (e) {}
 
   // ---------- levels ----------
   const SPINS_PER_LEVEL = 50;
@@ -568,6 +847,7 @@
       const lin = 0.35 * dt;                   // tiny linear drag so it actually stops
       vel = Math.abs(vel) < lin ? 0 : vel - Math.sign(vel) * lin;
     }
+    raceTick();
     if (ch.locked) vel = 0;
     challengeTick(now);
     const speed = Math.abs(vel);
