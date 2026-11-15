@@ -736,6 +736,10 @@
   $('versusBtn').onclick = () => openVersus();
   $('boardBtn').onclick = () => showBoard();
 
+  // Backup clock: keeps the race countdown and the 30s timer honest even if the screen stops drawing
+  // (app switched away, phone lagging). Spins still come from the animation loop and finger drags.
+  setInterval(() => { raceTick(); challengeTick(performance.now()); }, 200);
+
   // opened from an invite link: ?race=CODE
   try {
     const inv = new URLSearchParams(location.search).get('race');
