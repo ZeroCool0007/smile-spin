@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Smile Spin">
+<meta name="theme-color" content="#140b2e">
+<title>Smile Spin</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg1:#140b2e; --bg2:#3a1466; --accent:#ffd23f; --text:#fff; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; }
+  html,body { margin:0; height:100%; overflow:hidden; touch-action:none; overscroll-behavior:none; }
+  body {
+    font-family:'Fredoka',system-ui,sans-serif; color:var(--text);
+    background:radial-gradient(circle at 50% 40%, var(--bg2), var(--bg1) 70%);
+    transition:background .6s;
+    display:flex; flex-direction:column; align-items:center;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header { text-align:center; margin-top:14px; }
+  h1 { margin:0; font-size:30px; letter-spacing:1px; color:var(--accent); text-shadow:0 3px 0 rgba(0,0,0,.35); }
+  #mood { font-size:15px; opacity:.85; min-height:20px; margin-top:2px; }
+  .stats { display:flex; gap:10px; margin:12px 0 4px; }
+  .stat { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:6px 12px; text-align:center; min-width:78px; }
+  .stat b { display:block; font-size:22px; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .stat span { font-size:11px; text-transform:uppercase; letter-spacing:1px; opacity:.7; }
+  #levelbar { width:min(320px,80vw); height:10px; background:rgba(255,255,255,.1); border-radius:10px; overflow:hidden; margin-top:6px; }
+  #levelfill { height:100%; width:0; background:linear-gradient(90deg,var(--accent),#ff5fa2); transition:width .2s; }
+  #levelLabel { font-size:12px; opacity:.75; margin-top:4px; }
+  #stage { flex:1; width:100%; position:relative; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; }
+  #hint { position:absolute; bottom:10px; width:100%; text-align:center; font-size:15px; opacity:.8; pointer-events:none; animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.35; } }
+  #toast { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%) scale(.5); font-size:38px; font-weight:700; color:var(--accent);
+    text-shadow:0 4px 0 rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:all .35s cubic-bezier(.2,1.6,.4,1); white-space:nowrap; }
+  #toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  nav { display:flex; gap:12px; margin:6px 0 16px; }
+  nav button { font-family:inherit; font-size:16px; color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
+    border-radius:999px; padding:10px 16px; cursor:pointer; }
+  nav button:active { transform:scale(.94); }
+</style>
+</head>
+<body>
+<header>
+  <h1>😊 Smile Spin</h1>
+  <div id="mood">Flick me! I'm sleepy…</div>
+</header>
+<div class="stats">
+  <div class="stat"><b id="rpm">0</b><span>RPM</span></div>
+  <div class="stat"><b id="spins">0</b><span>Spins</span></div>
+  <div class="stat"><b id="best">0</b><span>Best RPM</span></div>
+</div>
+<div id="levelbar"><div id="levelfill"></div></div>
+<div id="levelLabel">Level 1</div>
+<div id="stage">
+  <canvas id="c"></canvas>
+  <div id="toast"></div>
+  <div id="hint">👆 Swipe around the spinner • tap the middle to boost</div>
+</div>
+<nav>
+  <button id="themeBtn">🎨 Color</button>
+  <button id="soundBtn">🔊 Sound</button>
+  <button id="hapticBtn">📳 Buzz</button>
+</nav>
+
+<script>
+(() => {
+  const TAU = Math.PI * 2;
+  const themes = [
+    { name:'Grape',  bg1:'#140b2e', bg2:'#3a1466', a:'#ff5fa2', b:'#7b2ff7', accent:'#ffd23f' },
+    { name:'Ocean',  bg1:'#04172b', bg2:'#0b4f7a', a:'#00e5ff', b:'#2962ff', accent:'#7cffcb' },
+    { name:'Lava',   bg1:'#1f0500', bg2:'#6b1a00', a:'#ffb300', b:'#ff3d00', accent:'#fff176' },
+    { name:'Lime',   bg1:'#071a0a', bg2:'#1d5a22', a:'#c6ff00', b:'#00c853', accent:'#ffffff' },
+    { name:'Candy',  bg1:'#2a0b25', bg2:'#7a1e6a', a:'#ff80ab', b:'#ea80fc', accent:'#b9f6ff' },
+  ];
+
+  // ---------- storage (safe) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('smilespin_'+k); return v === null ? d : JSON.parse(v); } catch(e) { return d; } },
+    set(k, v) { try { localStorage.setItem('smilespin_'+k, JSON.stringify(v)); } catch(e) {} }
+  };
+
+  let themeIdx = store.get('theme', 0) % themes.length;
+  let soundOn = store.get('sound', true);
+  let hapticOn = store.get('haptic', true);
+  let totalRot = store.get('rot', 0);       // total radians spun, all time
+  let bestRpm = store.get('best', 0);
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('c'), ctx = canvas.getContext('2d');
+  const stage = $('stage');
+
+  // ---------- sizing ----------
+  let W, H, cx, cy, S, dpr;
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = stage.clientWidth; H = stage.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cx = W / 2; cy = H / 2;
+    S = Math.min(W, H) * 0.46;  // overall spinner radius
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ---------- theme ----------
+  function applyTheme() {
+    const t = themes[themeIdx];
+    const r = document.documentElement.style;
+    r.setProperty('--bg1', t.bg1); r.setProperty('--bg2', t.bg2); r.setProperty('--accent', t.accent);
+  }
+  applyTheme();
+
+  // ---------- audio ----------
+  let actx = null;
+  function audio() {
+    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} }
+    if (actx && actx.state === 'suspended') actx.resume().catch(()=>{});
+    return actx;
+  }
+  function tick(speed) {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = 'triangle';
+    o.frequency.value = 500 + Math.min(speed, 60) * 18 + Math.random() * 40;
+    g.gain.setValueAtTime(0.06, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.05);
+    o.connect(g).connect(a.destination);
+    o.start(); o.stop(a.currentTime + 0.06);
+  }
+  function chime() {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    [523, 659, 784, 1046].forEach((f, i) => {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      const t0 = a.currentTime + i * 0.08;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.35);
+      o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + 0.4);
+    });
+  }
+  function buzz(ms) { if (hapticOn && navigator.vibrate) { try { navigator.vibrate(ms); } catch(e) {} } }
+
+  // ---------- physics ----------
+  let rot = 0, vel = 0;           // radians, rad/s
+  const MAX_V = 90;
+  let dragging = false, lastAng = 0, lastT = 0, dragVel = 0;
+  let lastLobe = 0, lastTickT = 0, lastBuzzT = 0;
+  let boostPulse = 0;
+
+  function angAt(x, y) { return Math.atan2(y - cy, x - cx); }
+  function norm(d) { while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; }
+  function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+  canvas.addEventListener('pointerdown', e => {
+    audio();
+    $('hint').style.display = 'none';
+    const p = local(e);
+    const dist = Math.hypot(p.x - cx, p.y - cy);
+    if (dist < S * 0.22) { // tap hub = boost
+      const dir = vel >= 0 ? 1 : -1;
+      vel = Math.max(-MAX_V, Math.min(MAX_V, vel + dir * 12));
+      boostPulse = 1; buzz(15);
+      return;
+    }
+    canvas.setPointerCapture(e.pointerId);
+    dragging = true; lastAng = angAt(p.x, p.y); lastT = performance.now(); dragVel = vel;
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const p = local(e), now = performance.now();
+    const a = angAt(p.x, p.y), d = norm(a - lastAng);
+    const dt = Math.max((now - lastT) / 1000, 0.001);
+    rot += d; totalRot += Math.abs(d);
+    const inst = d / dt;
+    dragVel = dragVel * 0.6 + inst * 0.4;
+    vel = dragVel;
+    lastAng = a; lastT = now;
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (performance.now() - lastT > 120) dragVel *= 0.3; // held still before release
+    vel = Math.max(-MAX_V, Math.min(MAX_V, dragVel * 1.15));
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+
+  // ---------- buttons ----------
+  function updateBtns() {
+    $('soundBtn').textContent = soundOn ? '🔊 Sound' : '🔇 Muted';
+    $('hapticBtn').textContent = hapticOn ? '📳 Buzz' : '📴 No buzz';
+  }
+  updateBtns();
+  $('themeBtn').onclick = () => { themeIdx = (themeIdx + 1) % themes.length; store.set('theme', themeIdx); applyTheme(); showToast(themes[themeIdx].name + '!'); };
+  $('soundBtn').onclick = () => { soundOn = !soundOn; store.set('sound', soundOn); updateBtns(); if (soundOn) tick(5); };
+  $('hapticBtn').onclick = () => { hapticOn = !hapticOn; store.set('haptic', hapticOn); updateBtns(); buzz(30); };
+
+  // ---------- toast + confetti ----------
+  let toastTimer;
+  function showToast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 1300);
+  }
+  const confetti = [];
+  function burst(n) {
+    const t = themes[themeIdx], cols = [t.a, t.b, t.accent, '#fff'];
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * TAU, sp = 200 + Math.random() * 500;
+      confetti.push({ x: cx, y: cy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 200,
+        r: 4 + Math.random() * 5, c: cols[i % cols.length], life: 1.6 + Math.random(), spin: Math.random() * TAU, vs: (Math.random() - .5) * 12 });
+    }
+  }
+
+  // ---------- levels ----------
+  const SPINS_PER_LEVEL = 50;
+  let level = Math.floor(totalRot / TAU / SPINS_PER_LEVEL) + 1;
+  const levelMsgs = ['Nice!', 'Spin Master!', 'Whoa!!', 'Unstoppable!', 'Legendary!', 'Smile Overload!', 'Cosmic!'];
+
+  // ---------- drawing helpers ----------
+  function face(x, y, r, mood, t, rotation = 0) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rotation);
+    // head
+    const g = ctx.createRadialGradient(-r * .3, -r * .35, r * .1, 0, 0, r);
+    g.addColorStop(0, '#fff3a0'); g.addColorStop(1, '#ffc107');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.lineWidth = r * 0.06; ctx.strokeStyle = 'rgba(120,60,0,.35)'; ctx.stroke();
+    ctx.fillStyle = '#3b2200'; ctx.strokeStyle = '#3b2200'; ctx.lineCap = 'round';
+    const ex = r * 0.35, ey = -r * 0.18, er = r * 0.11;
+
+    if (mood === 'dizzy') {
+      ctx.lineWidth = r * 0.06;
+      [-1, 1].forEach(s => {
+        ctx.beginPath();
+        for (let k = 0; k < 40; k++) {
+          const a = k * 0.45 + t * 10 * s, rr = (k / 40) * er * 1.6;
+          const px = s * ex + Math.cos(a) * rr, py = ey + Math.sin(a) * rr;
+          k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        }
+        ctx.stroke();
+      });
+      ctx.beginPath(); ctx.ellipse(0, r * 0.4, r * 0.18, r * 0.22, 0, 0, TAU); ctx.fill();
+    } else if (mood === 'sleepy') {
+      ctx.lineWidth = r * 0.07;
+      [-1, 1].forEach(s => { ctx.beginPath(); ctx.arc(s * ex, ey, er, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke(); });
+      ctx.beginPath(); ctx.arc(0, r * 0.2, r * 0.3, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
+    } else {
+      // eyes (blink occasionally)
+      const blink = (Math.sin(t * 1.3) > 0.985) ? 0.15 : 1;
+      const big = mood === 'wow' ? 1.35 : 1;
+      [-1, 1].forEach(s => {
+        ctx.beginPath(); ctx.ellipse(s * ex, ey, er * big, er * 1.3 * big * blink, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(s * ex + er * .35, ey - er * .45, er * .35 * big, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#3b2200';
+      });
+      if (mood === 'smile') {
+        ctx.lineWidth = r * 0.08;
+        ctx.beginPath(); ctx.arc(0, r * 0.1, r * 0.42, 0.18 * Math.PI, 0.82 * Math.PI); ctx.stroke();
+      } else { // grin / wow: open mouth
+        const open = mood === 'wow' ? 0.32 : 0.22;
+        ctx.beginPath();
+        ctx.moveTo(-r * 0.45, r * 0.18);
+        ctx.quadraticCurveTo(0, r * (0.18 + open * 2.6), r * 0.45, r * 0.18);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#ff5d73';
+        ctx.beginPath(); ctx.ellipse(0, r * (0.3 + open), r * 0.18, r * 0.08, 0, 0, TAU); ctx.fill();
+      }
+      // cheeks
+      ctx.fillStyle = 'rgba(255,90,120,.35)';
+      [-1, 1].forEach(s => { ctx.beginPath(); ctx.ellipse(s * r * 0.6, r * 0.12, r * 0.13, r * 0.08, 0, 0, TAU); ctx.fill(); });
+    }
+    ctx.restore();
+  }
+
+  function spinnerBody(rotation, alpha) {
+    const t = themes[themeIdx];
+    const R = S * 0.6, lr = S * 0.34;
+    ctx.save(); ctx.globalAlpha = alpha; ctx.translate(cx, cy); ctx.rotate(rotation);
+    const g = ctx.createLinearGradient(-S, -S, S, S);
+    g.addColorStop(0, t.a); g.addColorStop(1, t.b);
+    // arms
+    ctx.strokeStyle = g; ctx.lineCap = 'round'; ctx.lineWidth = lr * 1.1;
+    for (let i = 0; i < 3; i++) {
+      const a = i * TAU / 3 - Math.PI / 2;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(Math.cos(a) * R, Math.sin(a) * R); ctx.stroke();
+    }
+    // lobes
+    ctx.fillStyle = g;
+    for (let i = 0; i < 3; i++) {
+      const a = i * TAU / 3 - Math.PI / 2;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * R, Math.sin(a) * R, lr, 0, TAU); ctx.fill();
+    }
+    // shine
+    ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.lineWidth = S * 0.025;
+    for (let i = 0; i < 3; i++) {
+      const a = i * TAU / 3 - Math.PI / 2;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * R, Math.sin(a) * R, lr * 0.86, Math.PI * 1.05, Math.PI * 1.5); ctx.stroke();
+    }
+    ctx.restore();
+    return { R, lr };
+  }
+
+  // ---------- loop ----------
+  let prev = performance.now(), time = 0, shownRpm = 0;
+  let saveTimer = 0;
+  function frame(now) {
+    const dt = Math.min((now - prev) / 1000, 0.05); prev = now; time += dt;
+
+    if (!dragging) {
+      const before = rot;
+      rot += vel * dt;
+      totalRot += Math.abs(rot - before);
+      vel *= Math.exp(-0.28 * dt);            // smooth bearing friction
+      const lin = 0.35 * dt;                   // tiny linear drag so it actually stops
+      vel = Math.abs(vel) < lin ? 0 : vel - Math.sign(vel) * lin;
+    }
+    const speed = Math.abs(vel);
+    const rpm = speed / TAU * 60;
+    shownRpm += (rpm - shownRpm) * 0.15;
+
+    // ticks when a lobe passes
+    const lobe = Math.floor(rot / (TAU / 3));
+    if (lobe !== lastLobe) {
+      lastLobe = lobe;
+      if (now - lastTickT > 28) { tick(speed); lastTickT = now; }
+      if (now - lastBuzzT > 90 && speed > 2) { buzz(speed > 30 ? 4 : 8); lastBuzzT = now; }
+    }
+
+    // best + level
+    if (rpm > bestRpm + 0.5 && rpm > 30) {
+      const wasBest = bestRpm; bestRpm = rpm;
+      if (wasBest > 30 && Math.floor(rpm / 100) > Math.floor(wasBest / 100)) { showToast('New record!'); chime(); burst(40); }
+    }
+    const spinsTotal = totalRot / TAU;
+    const newLevel = Math.floor(spinsTotal / SPINS_PER_LEVEL) + 1;
+    if (newLevel > level) {
+      level = newLevel;
+      showToast('Level ' + level + ' — ' + levelMsgs[(level - 2) % levelMsgs.length]);
+      chime(); burst(120); buzz([30, 40, 60]);
+    }
+
+    // mood
+    let mood, moodText;
+    if (speed < 0.6) { mood = 'sleepy'; moodText = "Flick me! I'm sleepy…"; }
+    else if (speed < 12) { mood = 'smile'; moodText = 'Hehe, that tickles 😊'; }
+    else if (speed < 30) { mood = 'grin'; moodText = 'Wheee! Faster! 😁'; }
+    else if (speed < 55) { mood = 'wow'; moodText = 'WOOOAH!! 🤩'; }
+    else { mood = 'dizzy'; moodText = "I'm sooo dizzy 😵‍💫"; }
+    $('mood').textContent = moodText;
+
+    // draw
+    ctx.clearRect(0, 0, W, H);
+    const t = themes[themeIdx];
+
+    // glow ring that grows with speed
+    const glow = Math.min(speed / 60, 1);
+    if (glow > 0.02) {
+      const gg = ctx.createRadialGradient(cx, cy, S * 0.3, cx, cy, S * 1.25);
+      gg.addColorStop(0, 'rgba(0,0,0,0)');
+      gg.addColorStop(0.7, t.a + Math.round(glow * 90).toString(16).padStart(2, '0'));
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(cx, cy, S * 1.25, 0, TAU); ctx.fill();
+    }
+
+    // motion-blur ghosts
+    const ghosts = Math.min(5, Math.floor(speed / 8));
+    for (let i = ghosts; i >= 1; i--) spinnerBody(rot - Math.sign(vel) * i * 0.06 * Math.min(speed / 20, 1.5), 0.12);
+    const { R } = spinnerBody(rot, 1);
+
+    // lobe faces (spin with the body, fade at high speed)
+    const faceAlpha = Math.max(0.15, 1 - speed / 70);
+    ctx.save(); ctx.globalAlpha = faceAlpha;
+    for (let i = 0; i < 3; i++) {
+      const a = rot + i * TAU / 3 - Math.PI / 2;
+      face(cx + Math.cos(a) * R, cy + Math.sin(a) * R, S * 0.22, mood === 'dizzy' ? 'dizzy' : (speed < 0.6 ? 'sleepy' : 'grin'), time + i, a + Math.PI / 2);
+    }
+    ctx.restore();
+
+    // hub (bearing — stays upright, the main face)
+    boostPulse *= Math.exp(-6 * dt);
+    const hubR = S * 0.24 * (1 + boostPulse * 0.15 + (mood === 'wow' ? Math.sin(time * 20) * 0.02 : 0));
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.beginPath(); ctx.arc(cx, cy + 4, hubR * 1.08, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(cx, cy, hubR * 1.08, 0, TAU); ctx.fill();
+    const wobble = mood === 'dizzy' ? Math.sin(time * 6) * 0.25 : 0;
+    face(cx, cy, hubR, mood, time, wobble);
+
+    // confetti
+    for (let i = confetti.length - 1; i >= 0; i--) {
+      const p = confetti[i];
+      p.vy += 700 * dt; p.vx *= 0.99; p.x += p.vx * dt; p.y += p.vy * dt; p.spin += p.vs * dt; p.life -= dt;
+      if (p.life <= 0 || p.y > H + 20) { confetti.splice(i, 1); continue; }
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.spin); ctx.globalAlpha = Math.min(1, p.life);
+      ctx.fillStyle = p.c; ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r); ctx.restore();
+    }
+
+    // stats
+    $('rpm').textContent = Math.round(shownRpm);
+    $('spins').textContent = Math.floor(spinsTotal).toLocaleString();
+    $('best').textContent = Math.round(bestRpm);
+    const into = (spinsTotal % SPINS_PER_LEVEL) / SPINS_PER_LEVEL;
+    $('levelfill').style.width = (into * 100) + '%';
+    $('levelLabel').textContent = 'Level ' + level + ' • ' + Math.ceil(SPINS_PER_LEVEL - spinsTotal % SPINS_PER_LEVEL) + ' spins to next';
+
+    saveTimer += dt;
+    if (saveTimer > 2) { saveTimer = 0; store.set('rot', totalRot); store.set('best', bestRpm); }
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  document.addEventListener('visibilitychange', () => { store.set('rot', totalRot); store.set('best', bestRpm); });
+})();
+</script>
+</body>
+</html>
