@@ -37,10 +37,50 @@
   #toast { position:absolute; top:40%; left:50%; transform:translate(-50%,-50%) scale(.5); font-size:38px; font-weight:700; color:var(--accent);
     text-shadow:0 4px 0 rgba(0,0,0,.4); opacity:0; pointer-events:none; transition:all .35s cubic-bezier(.2,1.6,.4,1); white-space:nowrap; }
   #toast.show { opacity:1; transform:translate(-50%,-50%) scale(1); }
-  nav { display:flex; gap:12px; margin:6px 0 16px; }
-  nav button { font-family:inherit; font-size:16px; color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
-    border-radius:999px; padding:10px 16px; cursor:pointer; }
-  nav button:active { transform:scale(.94); }
+  nav { display:flex; gap:8px; margin:6px 0 16px; align-items:center; flex-wrap:wrap; justify-content:center; }
+  nav button, .mbtn { font-family:inherit; font-size:16px; color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.2);
+    border-radius:999px; padding:10px 14px; cursor:pointer; }
+  nav button.icon { padding:10px 12px; font-size:18px; }
+  nav button.primary, .mbtn.primary { background:var(--accent); color:#2a1400; border-color:transparent; font-weight:700; }
+  nav button:active, .mbtn:active { transform:scale(.94); }
+  nav button:disabled { opacity:.4; }
+
+  /* challenge HUD */
+  #hud { position:absolute; top:8px; left:50%; transform:translateX(-50%); display:none; text-align:center; pointer-events:none;
+    background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.15); border-radius:18px; padding:6px 18px; }
+  #hud.on { display:block; }
+  #hudTime { font-size:30px; font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; line-height:1.1; }
+  #hudSpins { font-size:15px; opacity:.9; }
+  #hud.hurry #hudTime { color:#ff5d73; animation:pulse .5s infinite; }
+  #countdown { position:absolute; inset:0; display:none; align-items:center; justify-content:center; font-size:110px; font-weight:700;
+    color:var(--accent); text-shadow:0 6px 0 rgba(0,0,0,.4); pointer-events:none; }
+  #countdown.on { display:flex; }
+
+  /* modal */
+  #modal { position:fixed; inset:0; background:rgba(5,0,15,.72); display:none; align-items:center; justify-content:center; z-index:10;
+    padding:16px; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); }
+  #modal.on { display:flex; }
+  .card { width:min(380px,100%); max-height:calc(100% - 20px); overflow:auto; background:linear-gradient(160deg,var(--bg2),var(--bg1));
+    border:1px solid rgba(255,255,255,.18); border-radius:22px; padding:20px 18px; text-align:center; box-shadow:0 20px 50px rgba(0,0,0,.5); }
+  .card h2 { margin:0 0 4px; color:var(--accent); font-size:26px; }
+  .card .big { font-size:64px; font-weight:700; color:var(--accent); line-height:1; margin:8px 0 2px; }
+  .card p { margin:6px 0; opacity:.9; }
+  .card .row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:12px; }
+  .card input { font-family:inherit; font-size:18px; width:100%; padding:10px 14px; border-radius:14px; border:1px solid rgba(255,255,255,.25);
+    background:rgba(0,0,0,.3); color:#fff; text-align:center; margin-top:10px; user-select:text; -webkit-user-select:text; }
+  .card .err { color:#ff8fa0; font-size:14px; min-height:18px; margin-top:6px; }
+  .tabs { display:flex; gap:6px; justify-content:center; margin:10px 0; }
+  .tabs button { font-family:inherit; font-size:14px; color:#fff; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18);
+    border-radius:999px; padding:6px 14px; cursor:pointer; }
+  .tabs button.on { background:var(--accent); color:#2a1400; border-color:transparent; font-weight:700; }
+  ol.board { list-style:none; margin:0; padding:0; text-align:left; }
+  ol.board li { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; }
+  ol.board li:nth-child(odd) { background:rgba(255,255,255,.05); }
+  ol.board li.me { background:rgba(255,210,63,.22); outline:1px solid var(--accent); }
+  ol.board .rk { width:30px; text-align:center; font-weight:700; opacity:.85; }
+  ol.board .nm { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  ol.board .sc { font-weight:700; color:var(--accent); font-variant-numeric:tabular-nums; }
+  .muted { opacity:.65; font-size:14px; }
 </style>
 </head>
 <body>
@@ -58,13 +98,18 @@
 <div id="stage">
   <canvas id="c"></canvas>
   <div id="toast"></div>
+  <div id="hud"><div id="hudTime">30.0</div><div id="hudSpins">0 spins</div></div>
+  <div id="countdown"></div>
   <div id="hint">👆 Swipe around the spinner • tap the middle to boost</div>
 </div>
 <nav>
-  <button id="themeBtn">🎨 Color</button>
-  <button id="soundBtn">🔊 Sound</button>
-  <button id="hapticBtn">📳 Buzz</button>
+  <button id="challengeBtn" class="primary">🏁 30s Challenge</button>
+  <button id="boardBtn">🏆 Top</button>
+  <button id="themeBtn" class="icon" aria-label="Change color">🎨</button>
+  <button id="soundBtn" class="icon" aria-label="Sound on/off">🔊</button>
+  <button id="hapticBtn" class="icon" aria-label="Buzz on/off">📳</button>
 </nav>
+<div id="modal"><div class="card" id="card"></div></div>
 
 <script>
 (() => {
@@ -153,13 +198,19 @@
   let dragging = false, lastAng = 0, lastT = 0, dragVel = 0;
   let lastLobe = 0, lastTickT = 0, lastBuzzT = 0;
   let boostPulse = 0;
+  // challenge state
+  const CH_SECONDS = 30;
+  const ch = { active:false, locked:false, rot:0, endAt:0 };
 
   function angAt(x, y) { return Math.atan2(y - cy, x - cx); }
   function norm(d) { while (d > Math.PI) d -= TAU; while (d < -Math.PI) d += TAU; return d; }
   function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
 
+  function addRot(d) { totalRot += d; if (ch.active) ch.rot += d; }
+
   canvas.addEventListener('pointerdown', e => {
     audio();
+    if (ch.locked) return;                // countdown in progress
     $('hint').style.display = 'none';
     const p = local(e);
     const dist = Math.hypot(p.x - cx, p.y - cy);
@@ -177,7 +228,7 @@
     const p = local(e), now = performance.now();
     const a = angAt(p.x, p.y), d = norm(a - lastAng);
     const dt = Math.max((now - lastT) / 1000, 0.001);
-    rot += d; totalRot += Math.abs(d);
+    rot += d; addRot(Math.abs(d));
     const inst = d / dt;
     dragVel = dragVel * 0.6 + inst * 0.4;
     vel = dragVel;
@@ -194,8 +245,8 @@
 
   // ---------- buttons ----------
   function updateBtns() {
-    $('soundBtn').textContent = soundOn ? '🔊 Sound' : '🔇 Muted';
-    $('hapticBtn').textContent = hapticOn ? '📳 Buzz' : '📴 No buzz';
+    $('soundBtn').textContent = soundOn ? '🔊' : '🔇';
+    $('hapticBtn').textContent = hapticOn ? '📳' : '📴';
   }
   updateBtns();
   $('themeBtn').onclick = () => { themeIdx = (themeIdx + 1) % themes.length; store.set('theme', themeIdx); applyTheme(); showToast(themes[themeIdx].name + '!'); };
@@ -217,6 +268,202 @@
         r: 4 + Math.random() * 5, c: cols[i % cols.length], life: 1.6 + Math.random(), spin: Math.random() * TAU, vs: (Math.random() - .5) * 12 });
     }
   }
+
+  // ---------- leaderboard (Firebase Firestore REST, free Spark plan) ----------
+  const FB_KEY = 'AIzaSyD5rv__dCyewPDWDvekIAfoYW-SK6WAd4s';           // public web key (safe to ship; access is limited by Firestore rules)
+  const FB_DOCS = 'projects/smile-spin/databases/(default)/documents';
+  const FB_BASE = 'https://firestore.googleapis.com/v1/' + FB_DOCS;
+  const GAME_URL = 'https://zerocool0007.github.io/smile-spin/';
+
+  function isoWeek(d = new Date()) {
+    const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const day = t.getUTCDay() || 7;
+    t.setUTCDate(t.getUTCDate() + 4 - day);
+    const y = t.getUTCFullYear();
+    const w = Math.ceil(((t - Date.UTC(y, 0, 1)) / 86400000 + 1) / 7);
+    return y + '-W' + String(w).padStart(2, '0');
+  }
+  function randId(n = 20) {
+    const c = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let s = ''; const a = new Uint32Array(n);
+    (window.crypto || {}).getRandomValues ? crypto.getRandomValues(a) : a.forEach((_, i) => a[i] = Math.random() * 1e9);
+    for (let i = 0; i < n; i++) s += c[a[i] % c.length];
+    return s;
+  }
+  async function postScore(name, score) {
+    const id = randId();
+    const body = { writes: [{
+      update: { name: FB_DOCS + '/scores/' + id, fields: {
+        name: { stringValue: name }, score: { integerValue: String(score) }, week: { stringValue: isoWeek() } } },
+      updateTransforms: [{ fieldPath: 'ts', setToServerValue: 'REQUEST_TIME' }],
+      currentDocument: { exists: false }
+    }]};
+    const r = await fetch(FB_BASE + ':commit?key=' + FB_KEY, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('post failed ' + r.status);
+    return id;
+  }
+  async function runQuery(sq) {
+    const r = await fetch(FB_BASE + ':runQuery?key=' + FB_KEY, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ structuredQuery: sq }) });
+    if (!r.ok) throw new Error('query failed ' + r.status);
+    const j = await r.json();
+    return j.filter(x => x.document).map(x => ({
+      id: x.document.name.split('/').pop(),
+      name: x.document.fields.name.stringValue,
+      score: Number(x.document.fields.score.integerValue)
+    }));
+  }
+  // best score per name (so one person can't fill the whole board)
+  function bestPerName(rows) {
+    const m = new Map();
+    for (const r of rows) { const k = r.name.trim().toLowerCase(); if (!m.has(k) || m.get(k).score < r.score) m.set(k, r); }
+    return [...m.values()].sort((a, b) => b.score - a.score).slice(0, 20);
+  }
+  async function loadBoard(kind) {
+    if (kind === 'week') {
+      const rows = await runQuery({ from:[{ collectionId:'scores' }],
+        where:{ fieldFilter:{ field:{ fieldPath:'week' }, op:'EQUAL', value:{ stringValue: isoWeek() } } }, limit: 500 });
+      return bestPerName(rows);
+    }
+    const rows = await runQuery({ from:[{ collectionId:'scores' }],
+      orderBy:[{ field:{ fieldPath:'score' }, direction:'DESCENDING' }], limit: 150 });
+    return bestPerName(rows);
+  }
+
+  // simple name filter (kids play this)
+  const BAD = ['fuck','fuk','shit','bitch','cunt','dick','cock','pussy','penis','vagina','sex','porn','nigg','nigga','fag','slut','whore','rape','nazi','hitler','kkk','retard','ass','asshole','damn','piss','boob','tits','cum','anal','kill','die'];
+  function cleanName(raw) {
+    const n = (raw || '').replace(/[^A-Za-z0-9 _.-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 12);
+    if (n.length < 2) return { ok:false, msg:'Use 2–12 letters or numbers.' };
+    const flat = n.toLowerCase().replace(/[0]/g,'o').replace(/[1!]/g,'i').replace(/[3]/g,'e').replace(/[4@]/g,'a').replace(/[5$]/g,'s').replace(/[7]/g,'t').replace(/[^a-z]/g,'');
+    if (BAD.some(w => flat.includes(w))) return { ok:false, msg:'Please pick a friendlier name 🙂' };
+    return { ok:true, name:n };
+  }
+
+  // ---------- modal ----------
+  const modal = $('modal'), card = $('card');
+  function openModal(html) { card.innerHTML = html; modal.classList.add('on'); }
+  function closeModal() { modal.classList.remove('on'); }
+  modal.addEventListener('pointerdown', e => { if (e.target === modal) closeModal(); });
+  function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+  let boardKind = 'week';
+  async function showBoard(highlightId, myScore) {
+    openModal(`<h2>🏆 Leaderboard</h2>
+      <p class="muted">Most spins in 30 seconds</p>
+      <div class="tabs"><button data-k="week" class="${boardKind==='week'?'on':''}">This week</button><button data-k="all" class="${boardKind==='all'?'on':''}">All time</button></div>
+      <div id="boardBody"><p class="muted">Loading…</p></div>
+      <div class="row"><button class="mbtn primary" id="bPlay">🏁 Play</button><button class="mbtn" id="bClose">Close</button></div>`);
+    card.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { boardKind = b.dataset.k; showBoard(highlightId, myScore); });
+    $('bPlay').onclick = () => { closeModal(); startChallenge(); };
+    $('bClose').onclick = closeModal;
+    try {
+      const rows = await loadBoard(boardKind);
+      const body = $('boardBody'); if (!body) return;
+      if (!rows.length) { body.innerHTML = '<p class="muted">No scores yet — be the first! 🥇</p>'; return; }
+      const medal = i => ['🥇','🥈','🥉'][i] || (i + 1);
+      body.innerHTML = '<ol class="board">' + rows.map((r, i) =>
+        `<li class="${r.id === highlightId ? 'me' : ''}"><span class="rk">${medal(i)}</span><span class="nm">${esc(r.name)}</span><span class="sc">${r.score}</span></li>`).join('') + '</ol>'
+        + (highlightId && !rows.some(r => r.id === highlightId) && myScore ? `<p class="muted">Your score: ${myScore} — keep spinning to crack the top 20!</p>` : '');
+    } catch (err) {
+      const body = $('boardBody'); if (body) body.innerHTML = '<p class="err">Couldn\'t load the leaderboard. Check your internet and try again.</p>';
+    }
+  }
+
+  // ---------- 30 second challenge ----------
+  let bestChallenge = store.get('bestCh', 0);
+  let nickname = store.get('nick', '');
+  const countdownEl = $('countdown'), hud = $('hud');
+
+  function startChallenge() {
+    if (ch.active || ch.locked) return;
+    closeModal(); audio();
+    $('hint').style.display = 'none';
+    vel = 0; dragging = false;
+    ch.locked = true; ch.rot = 0;
+    $('challengeBtn').disabled = true;
+    const steps = ['3', '2', '1', 'GO!'];
+    let i = 0;
+    const next = () => {
+      countdownEl.textContent = steps[i]; countdownEl.classList.add('on');
+      if (soundOn) { const a = audio(); if (a) { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = i < 3 ? 660 : 990;
+        g.gain.setValueAtTime(0.12, a.currentTime); g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + 0.25);
+        o.connect(g).connect(a.destination); o.start(); o.stop(a.currentTime + 0.3); } }
+      buzz(i < 3 ? 20 : 60);
+      i++;
+      if (i < steps.length) setTimeout(next, 750);
+      else setTimeout(() => {
+        countdownEl.classList.remove('on');
+        ch.locked = false; ch.active = true; ch.rot = 0;
+        ch.endAt = performance.now() + CH_SECONDS * 1000;
+        hud.classList.add('on'); hud.classList.remove('hurry');
+      }, 450);
+    };
+    next();
+  }
+
+  function challengeTick(now) {
+    if (!ch.active) return;
+    const left = Math.max(0, (ch.endAt - now) / 1000);
+    $('hudTime').textContent = left.toFixed(1);
+    $('hudSpins').textContent = Math.floor(ch.rot / TAU) + ' spins';
+    hud.classList.toggle('hurry', left <= 5);
+    if (left <= 0) endChallenge();
+  }
+
+  function endChallenge() {
+    ch.active = false;
+    hud.classList.remove('on', 'hurry');
+    $('challengeBtn').disabled = false;
+    const score = Math.min(450, Math.floor(ch.rot / TAU));
+    const newBest = score > bestChallenge;
+    if (newBest) { bestChallenge = score; store.set('bestCh', score); }
+    chime(); burst(newBest ? 140 : 60); buzz([40, 50, 80]);
+    setTimeout(() => showResult(score, newBest), 500);
+  }
+
+  function shareText(score) {
+    return `I spun Smile Spin ${score} times in 30 seconds 😵‍💫 Can you beat me? ${GAME_URL}`;
+  }
+  async function share(score, btn) {
+    const text = shareText(score);
+    try {
+      if (navigator.share) { await navigator.share({ title:'Smile Spin', text }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    try { await navigator.clipboard.writeText(text); btn.textContent = '✅ Copied!'; }
+    catch (e) { btn.textContent = 'Copy failed'; }
+  }
+
+  function showResult(score) {
+    openModal(`<h2>Time's up!</h2>
+      <div class="big">${score}</div>
+      <p>spins in 30 seconds</p>
+      <p class="muted">${score >= bestChallenge && score > 0 ? '🎉 New personal best!' : 'Your best: ' + bestChallenge}</p>
+      ${score > 0 ? `<input id="nick" maxlength="12" placeholder="Your nickname" value="${esc(nickname)}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="err" id="nickErr"></div>
+      <div class="row"><button class="mbtn primary" id="rPost">🏆 Post score</button><button class="mbtn" id="rShare">📤 Challenge a friend</button></div>` : ''}
+      <div class="row"><button class="mbtn" id="rAgain">🔁 Play again</button><button class="mbtn" id="rClose">Close</button></div>
+      <p class="muted" style="margin-top:10px">Nicknames only — don't use your real name.</p>`);
+    $('rAgain').onclick = () => { closeModal(); startChallenge(); };
+    $('rClose').onclick = closeModal;
+    if (score <= 0) return;
+    $('rShare').onclick = () => share(score, $('rShare'));
+    $('rPost').onclick = async () => {
+      const c = cleanName($('nick').value);
+      if (!c.ok) { $('nickErr').textContent = c.msg; return; }
+      nickname = c.name; store.set('nick', nickname);
+      const btn = $('rPost'); btn.disabled = true; btn.textContent = 'Posting…';
+      try {
+        const id = await postScore(nickname, score);
+        showBoard(id, score);
+      } catch (e) {
+        btn.disabled = false; btn.textContent = '🏆 Post score';
+        $('nickErr').textContent = "Couldn't post — check your internet and try again.";
+      }
+    };
+  }
+
+  $('challengeBtn').onclick = startChallenge;
+  $('boardBtn').onclick = () => showBoard();
 
   // ---------- levels ----------
   const SPINS_PER_LEVEL = 50;
@@ -315,11 +562,13 @@
     if (!dragging) {
       const before = rot;
       rot += vel * dt;
-      totalRot += Math.abs(rot - before);
+      addRot(Math.abs(rot - before));
       vel *= Math.exp(-0.28 * dt);            // smooth bearing friction
       const lin = 0.35 * dt;                   // tiny linear drag so it actually stops
       vel = Math.abs(vel) < lin ? 0 : vel - Math.sign(vel) * lin;
     }
+    if (ch.locked) vel = 0;
+    challengeTick(now);
     const speed = Math.abs(vel);
     const rpm = speed / TAU * 60;
     shownRpm += (rpm - shownRpm) * 0.15;
