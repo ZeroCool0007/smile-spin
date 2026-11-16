@@ -322,12 +322,12 @@
       currentDocument: { exists: false }
     }]};
     const r = await fetch(FB_BASE + ':commit?key=' + FB_KEY, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error('post failed ' + r.status);
+    if (!r.ok) { const e = new Error('post failed ' + r.status); e.status = r.status; throw e; }
     return id;
   }
   async function runQuery(sq) {
     const r = await fetch(FB_BASE + ':runQuery?key=' + FB_KEY, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ structuredQuery: sq }) });
-    if (!r.ok) throw new Error('query failed ' + r.status);
+    if (!r.ok) { const e = new Error('query failed ' + r.status); e.status = r.status; throw e; }
     const j = await r.json();
     return j.filter(x => x.document).map(x => ({
       id: x.document.name.split('/').pop(),
@@ -362,6 +362,16 @@
     return { ok:true, name:n };
   }
 
+  // Explain a failed online request in plain words, with a short code for troubleshooting.
+  function netMsg(what, e) {
+    const s = e && e.status;
+    if (!s) return `Couldn't ${what} — your browser or network blocked the game's server (code NET). ` +
+      'Try turning off ad blockers / VPN, or open the link in Safari or Chrome.';
+    if (s === 403) return `Couldn't ${what} — the server said no (code 403).`;
+    if (s === 429 || s === 503) return `Couldn't ${what} — server busy, try again in a minute (code ${s}).`;
+    return `Couldn't ${what} — try again (code ${s}).`;
+  }
+
   // ---------- modal ----------
   const modal = $('modal'), card = $('card');
   function openModal(html) { card.innerHTML = html; modal.classList.add('on'); }
@@ -388,7 +398,7 @@
         `<li class="${r.id === highlightId ? 'me' : ''}"><span class="rk">${medal(i)}</span><span class="nm">${esc(r.name)}</span><span class="sc">${r.score}</span></li>`).join('') + '</ol>'
         + (highlightId && !rows.some(r => r.id === highlightId) && myScore ? `<p class="muted">Your score: ${myScore} — keep spinning to crack the top 20!</p>` : '');
     } catch (err) {
-      const body = $('boardBody'); if (body) body.innerHTML = '<p class="err">Couldn\'t load the leaderboard. Check your internet and try again.</p>';
+      const body = $('boardBody'); if (body) body.innerHTML = '<p class="err">' + esc(netMsg('load the leaderboard', err)) + '</p>';
     }
   }
 
@@ -495,7 +505,7 @@
         showBoard(id, score);
       } catch (e) {
         btn.disabled = false; btn.textContent = '🏆 Post score';
-        $('nickErr').textContent = "Couldn't post — check your internet and try again.";
+        $('nickErr').textContent = netMsg('post', e);
       }
     };
   }
@@ -526,7 +536,7 @@
   async function getRace(code) {
     const r = await fetch(FB_BASE + '/races/' + code + '?key=' + FB_KEY, { cache:'no-store' });
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error('get ' + r.status);
+    if (!r.ok) { const e = new Error('get ' + r.status); e.status = r.status; throw e; }
     const j = await r.json(), o = {};
     for (const k in j.fields) o[k] = fsVal(j.fields[k]);
     return o;
@@ -551,14 +561,15 @@
     throw new Error('no code');
   }
   async function joinRace(code, name) {
-    const d = await getRace(code);
+    let d;
+    try { d = await getRace(code); } catch (e) { return { ok:false, msg: netMsg('reach the race', e) }; }
     if (!d) return { ok:false, msg:'No race with that code. Check the letters and try again.' };
     if (d.state !== 'waiting' || d.guest) return { ok:false, msg:'That race already started or is full. Ask for a new code.' };
     if (d.host.toLowerCase() === name.toLowerCase()) return { ok:false, msg:'Pick a different nickname from the host.' };
     try {
       await fsCommit({ update:{ name: raceDoc(code), fields:{ guest:{ stringValue:name }, state:{ stringValue:'ready' } } },
         updateMask:{ fieldPaths:['guest', 'state'] }, currentDocument:{ exists:true } });
-    } catch (e) { return { ok:false, msg: e.status === 403 ? 'Someone else just joined that race.' : "Couldn't join — check your internet." }; }
+    } catch (e) { return { ok:false, msg: e.status === 403 ? 'Someone else just joined that race.' : netMsg('join', e) }; }
     return { ok:true, host:d.host };
   }
   async function startRaceOnServer() {
@@ -667,7 +678,7 @@
     if (me > 0) $('rvPost').onclick = async () => {
       const b = $('rvPost'); b.disabled = true; b.textContent = 'Posting…';
       try { const id = await postScore(race.me, me); showBoard(id, me); }
-      catch (e) { b.disabled = false; b.textContent = '🏆 Post my score'; $('rvErr').textContent = "Couldn't post — try again."; }
+      catch (e) { b.disabled = false; b.textContent = '🏆 Post my score'; $('rvErr').textContent = netMsg('post', e); }
     };
   }
 
@@ -713,7 +724,7 @@
         schedulePoll(1500);
       } catch (e) {
         b.disabled = false; b.textContent = '➕ Create a race';
-        $('vsErr').textContent = "Couldn't create a race — check your internet.";
+        $('vsErr').textContent = netMsg('create a race', e);
       }
     };
     $('vsJoin').onclick = async () => {
